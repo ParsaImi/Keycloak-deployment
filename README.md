@@ -1,10 +1,9 @@
-# Keycloak deployment
+# Keycloak Deployment
 
-## Docker Compose file
+## Docker Compose File
 
 ```yml
 version: "3.8"
-
 services:
   keycloak:
     container_name: keycloak
@@ -19,7 +18,7 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
       KC_DB_USERNAME: keycloak_user
       KC_DB_PASSWORD: keycloakpass
-      KC_HOSTNAME: 10.1.1.39
+      KC_HOSTNAME: 10.1.1.39 # replace with your ip address
       KC_HTTP_PORT: 8080
       KC_HTTPS_PORT: 8443
       KC_HTTP_ENABLED: "true"
@@ -28,87 +27,103 @@ services:
       - keycloak_network
     command:
       - "start"
-
 networks:
   keycloak_network:
     external: true
 ```
 
-### Volumes
+## Environment Variables
 
-if you run keycloak with start command, it requires ssl/tls encryption.
+### Database Setup
+You need to set up a dedicated PostgreSQL database instance for Keycloak with the credentials specified in the environment variables.
 
-so we make and specify a crt and key file :
+### Key Environment Variables
+- `KC_HOSTNAME`: Your Keycloak domain or IP address
+- `KC_HTTP_PORT` & `KC_HTTPS_PORT`: HTTP and HTTPS ports
 
-```bash
-openssl req -newkey rsa:2048 -nodes -keyout server.key -x509 -days 365 -out server.crt
-```
+**I am not going to set ssl/tls encryption**
+## Using Keycloak as an Identity Provider for MinIO
 
-You'll be prompted to enter certificate information:
+You can deploy MinIO using these instructions: https://github.com/ParsaImi/Minio-deployment
 
-Common name : yourdomain( in my case i set localhost )
+### Configure Keycloak to Work with MinIO
 
-### Environments
+#### 1. Create a Realm
+- Create a new realm called `myrealm`
 
-we need to setup a database indside a postgres instance dedicated for keycloak
+#### 2. Create a Client for MinIO
+- **Client Type**: OpenID Connect
+- **Client ID**: `minio`
 
-`KC_HOSTNAME` your keycloak domain 
-`KC_HTTP_PORT` & `KC_HTTPS_PORT` http and https ports
-`KC_HTTPS_CERTIFICATE_FILE` & `KC_HTTPS_CERTIFICATE_FILE` cert and key files path
+#### 3. Create a Client Scope
+- **Name**: `minio`
 
-### using keycloak as an IDP for Minio service
+#### 4. Configure a Mapper
+Navigate to the **Mappers** tab and create a new mapper:
+- **Mapper Type**: User Attribute
+- **Name**: `policy`
+- **User Attribute**: `policy`
+- **Token Claim Name**: `policy`
+- **Claim JSON Type**: String
+- Toggle **ON**:
+  - Add to ID token
+  - Add to access token
+  - Add to userinfo
 
-You can deploy Minio with this instruction : https://github.com/ParsaImi/Minio-deployment
+#### 5. Add Client Scope to Client
+- Select the `minio` client
+- Navigate to the **Client scopes** tab
+- Add `minio` scope as a **Default** scope
 
-**Configure Keycloak to work with MinIO**
-- Create a new realm called 'myrealm'
-- Create a Client for Minio service
-Client Type: OpenID Connect
-Client ID: minio
-- Create a Client Scope for Minio service
-Name: minio
-- Navigate to Mappers tab and configure a new Mapper
-select User Attributes
-Name: policy
-add policy as User Attribute
-Token Claim Name: policy
-Claim JSON Type: String
-Toggle Add to ID token
-Toggle Add to access token
-Toggle Add to userinfo
-- Add minio client scope to minio client
- select minio client and navigate to `Client scopes` tab
- add minio scope as Default scope
-- Create a new User
-Username: keycloakuser
-Navigate to `Credentials` tab and create a new password ( keycloakpass for my case )
-- Create a new Group
-Name: admins
-Navigate to Attributes tab and add a new attribute
-Key: policy
-Value: consoleAdmin ( or readwrite )
-Go to Members tab and add keycloakuser as a member
+#### 6. Create a User
+- **Username**: `keycloakuser`
+- Navigate to the **Credentials** tab and set a password (e.g., `keycloakpass`)
 
-**and we are done with keycloak configuration**
+#### 7. Create a Group
+- **Name**: `admins`
+- Navigate to the **Attributes** tab and add:
+  - **Key**: `policy`
+  - **Value**: `consoleAdmin` (or `readwrite`)
+- Go to the **Members** tab and add `keycloakuser` as a member
 
-#### Minio shell
+**Keycloak configuration is now complete!**
 
-exec into minio container to access minio shell
+## MinIO Configuration
 
-- create a new alias using your minio credentials
+### Access MinIO Shell
+Execute into the MinIO container to access the MinIO shell:
+
+#### 1. Create a New Alias
+Set up an alias using your MinIO credentials:
+
 ```bash
 mc alias set develop http://localhost:9000 minioadmin minioadmin123
 ```
 
-- Add keycloak as an IDP for minio
+#### 2. Add Keycloak as an Identity Provider
+Configure MinIO to use Keycloak for authentication:
+
 ```bash
 mc admin config set develop identity_openid \
-vendor="keycloak" \
-keycloak_realm="minio" scopes="minio-authorization" \
-keycloak_admin_url="http://10.1.1.39:8080/admin \
-client_id=minio client_secret=fvIoYZinI9DoEtDF1juOiaW5Ac1MOpIK \
-config_url="http://10.1.1.39:8080/realms/minio/.well-known/openid-configuration" display_name="Minio OpenID Login" \
-redirect_uri_dynamic="on" \
-tls_skip_verify="on"
+  vendor="keycloak" \
+  keycloak_realm="minio" \
+  scopes="minio-authorization" \
+  keycloak_admin_url="http://10.1.1.39:8080/admin" \
+  client_id="minio" \
+  client_secret="YOUR-CLIENT-SECRET" \
+  config_url="http://10.1.1.39:8080/realms/minio/.well-known/openid-configuration" \
+  display_name="Minio OpenID Login" \
+  redirect_uri_dynamic="on" \
+  tls_skip_verify="on"
 ```
 
+#### 3. Restart MinIO
+Restart the MinIO service to apply the configuration:
+
+```bash
+mc admin service restart develop
+```
+
+---
+
+**Note**: Replace IP addresses, passwords, and client secrets with your actual values.
